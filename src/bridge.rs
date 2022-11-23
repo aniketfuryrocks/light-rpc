@@ -80,8 +80,8 @@ impl LightBridge {
 
     pub fn confirm_transaction(
         &self,
-        signature: String,
-        commitment_cfg: CommitmentConfig,
+        _signature: String,
+        _commitment_cfg: CommitmentConfig,
     ) -> Result<String, JsonRpcError> {
         todo!()
     }
