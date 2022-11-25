@@ -26,6 +26,7 @@ pub struct LightBridge {
     pub connection_cache: Arc<ConnectionCache>,
     pub tpu_client: TpuClient,
     pub rpc_url: Url,
+    pub rpc_client: Arc<RpcClient>,
     pub tpu_addr: SocketAddr,
 }
 
@@ -40,7 +41,7 @@ impl LightBridge {
         let connection_cache = Arc::new(ConnectionCache::new(connection_pool_size));
 
         let tpu_client = TpuClient::new_with_connection_cache(
-            rpc_client,
+            rpc_client.clone(),
             ws_addr,
             Default::default(),
             connection_cache.clone(),
@@ -48,6 +49,7 @@ impl LightBridge {
 
         Ok(Self {
             rpc_url,
+            rpc_client,
             tpu_client,
             tpu_addr,
             connection_cache,
@@ -179,27 +181,33 @@ impl LightBridge {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
     use std::time::Duration;
 
+    use reqwest::Url;
     use solana_client::rpc_response::RpcVersionInfo;
     use solana_sdk::{
         message::Message, native_token::LAMPORTS_PER_SOL, pubkey::Pubkey, signature::Keypair,
         signer::Signer, system_instruction, transaction::Transaction,
     };
 
+    use crate::rpc::SendTransactionParams;
     use crate::{bridge::LightBridge, encoding::BinaryEncoding};
 
-    const RPC_ADDR: &str = "127.0.0.1:8899";
+    const RPC_ADDR: &str = "http://127.0.0.1:8899";
     const TPU_ADDR: &str = "127.0.0.1:1027";
-    const CONNECTION_POOL_SIZE: usize = 1;
+    const WS_ADDR: &str = "ws://127.0.0.1:8900";
+    const CONNECTION_POOL_SIZE: usize = 1024;
 
     #[test]
     fn get_version() {
         let light_bridge = LightBridge::new(
-            RPC_ADDR.parse().unwrap(),
+            Url::from_str(RPC_ADDR).unwrap(),
             TPU_ADDR.parse().unwrap(),
+            WS_ADDR,
             CONNECTION_POOL_SIZE,
-        );
+        )
+        .unwrap();
 
         let RpcVersionInfo {
             solana_core,
@@ -214,15 +222,16 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_send_transaction() {
         let light_bridge = LightBridge::new(
-            RPC_ADDR.parse().unwrap(),
+            Url::from_str(RPC_ADDR).unwrap(),
             TPU_ADDR.parse().unwrap(),
+            WS_ADDR,
             CONNECTION_POOL_SIZE,
-        );
+        )
+        .unwrap();
 
         let payer = Keypair::new();
         light_bridge
-            .thin_client
-            .rpc_client()
+            .rpc_client
             .request_airdrop(&payer.pubkey(), LAMPORTS_PER_SOL * 2)
             .unwrap();
 
@@ -234,11 +243,7 @@ mod tests {
 
         let message = Message::new(&[instruction], Some(&payer.pubkey()));
 
-        let blockhash = light_bridge
-            .thin_client
-            .rpc_client()
-            .get_latest_blockhash()
-            .unwrap();
+        let blockhash = light_bridge.rpc_client.get_latest_blockhash().unwrap();
 
         let tx = Transaction::new(&[&payer], message, blockhash);
         let signature = tx.signatures[0];
@@ -248,7 +253,7 @@ mod tests {
 
         assert_eq!(
             light_bridge
-                .send_transaction(tx, Default::default())
+                .send_transaction(SendTransactionParams(tx, Default::default()))
                 .unwrap(),
             encoded_signature
         );
@@ -259,8 +264,7 @@ mod tests {
 
         for _ in 0..100 {
             passed = light_bridge
-                .thin_client
-                .rpc_client()
+                .rpc_client
                 .confirm_transaction(&signature)
                 .unwrap();
 
