@@ -8,11 +8,16 @@ use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::transport::TransportError;
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct SendTransactionParams(pub String, #[serde(default)] pub SendTransactionConfig);
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ConfirmTransactionParams(pub String, #[serde(default)] pub CommitmentConfig);
+
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[serde(tag = "method", content = "params")]
 pub enum RpcMethod {
-    SendTransaction(String, #[serde(default)] SendTransactionConfig),
-    ConfirmTransaction(String, #[serde(default)] CommitmentConfig),
+    SendTransaction,
+    ConfirmTransaction,
     GetVersion,
     #[serde(other)]
     Other,
@@ -22,7 +27,8 @@ pub enum RpcMethod {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct JsonRpcReq {
     pub method: RpcMethod,
-    pub params: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub params: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

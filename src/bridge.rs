@@ -1,6 +1,9 @@
 use crate::configs::SendTransactionConfig;
 use crate::encoding::BinaryEncoding;
-use crate::rpc::{JsonRpcError, JsonRpcRes, RpcMethod};
+use crate::rpc::{
+    ConfirmTransactionParams, JsonRpcError, JsonRpcReq, JsonRpcRes, RpcMethod,
+    SendTransactionParams,
+};
 use actix_web::{web, App, HttpServer, Responder};
 
 use reqwest::Url;
@@ -10,7 +13,6 @@ use solana_client::rpc_response::RpcVersionInfo;
 use solana_client::tpu_client::{TpuClient, TpuSenderError};
 use solana_client::{connection_cache::ConnectionCache, tpu_connection::TpuConnection};
 
-use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::transaction::Transaction;
 
 use std::time::Duration;
@@ -54,14 +56,16 @@ impl LightBridge {
 
     pub fn send_transaction(
         &self,
-        transaction: String,
-        SendTransactionConfig {
-            skip_preflight: _,       //TODO:
-            preflight_commitment: _, //TODO:
-            encoding,
-            max_retries,
-            min_context_slot: _, //TODO:
-        }: SendTransactionConfig,
+        SendTransactionParams(
+            transaction,
+            SendTransactionConfig {
+                skip_preflight: _,       //TODO:
+                preflight_commitment: _, //TODO:
+                encoding,
+                max_retries,
+                min_context_slot: _, //TODO:
+            },
+        ): SendTransactionParams,
     ) -> Result<String, JsonRpcError> {
         let wire_transaction = encoding.decode(transaction)?;
 
@@ -95,8 +99,7 @@ impl LightBridge {
 
     pub fn confirm_transaction(
         &self,
-        _signature: String,
-        _commitment_cfg: CommitmentConfig,
+        ConfirmTransactionParams(_signature, _commitment_cfg): ConfirmTransactionParams,
     ) -> Result<String, JsonRpcError> {
         todo!()
     }
@@ -112,15 +115,15 @@ impl LightBridge {
     /// Serialize params and execute the specified method
     pub async fn execute_rpc_request(
         &self,
-        method: RpcMethod,
+        JsonRpcReq { method, params }: JsonRpcReq,
     ) -> Result<serde_json::Value, JsonRpcError> {
         match method {
-            RpcMethod::SendTransaction(transaction, config) => {
-                Ok(self.send_transaction(transaction, config)?.into())
-            }
-            RpcMethod::ConfirmTransaction(signature, config) => {
-                Ok(self.confirm_transaction(signature, config)?.into())
-            }
+            RpcMethod::SendTransaction => Ok(self
+                .send_transaction(serde_json::from_value(params).unwrap())?
+                .into()),
+            RpcMethod::ConfirmTransaction => Ok(self
+                .confirm_transaction(serde_json::from_value(params).unwrap())?
+                .into()),
             RpcMethod::GetVersion => Ok(serde_json::to_value(self.get_version()).unwrap()),
             RpcMethod::Other => unreachable!(),
         }
@@ -149,23 +152,27 @@ impl LightBridge {
     }
 
     async fn rpc_route(body: bytes::Bytes, state: web::Data<Arc<LightBridge>>) -> JsonRpcRes {
-        let Ok(json_rpc_req) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        let Ok(json_rpc_req) = serde_json::from_slice::<JsonRpcReq>(&body) else {
             todo!()
         };
 
-        let rpc_method = serde_json::from_value(json_rpc_req.clone()).unwrap();
-
-        if let RpcMethod::Other = rpc_method {
-            reqwest::Client::new()
+        if let RpcMethod::Other = json_rpc_req.method {
+            println!("{:?}", json_rpc_req);
+            let res = reqwest::Client::new()
                 .post(state.rpc_url.clone())
-                .json(&json_rpc_req)
+                .body(body)
+                .header("Content-Type", "application/json")
                 .send()
                 .await
                 .unwrap();
+
+            println!("{}", res.status());
+            println!("{:?}", res.json::<serde_json::Value>().await.unwrap());
+            todo!()
         }
 
         state
-            .execute_rpc_request(rpc_method)
+            .execute_rpc_request(json_rpc_req)
             .await
             .try_into()
             .unwrap()
