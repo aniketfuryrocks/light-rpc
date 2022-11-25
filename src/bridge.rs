@@ -152,12 +152,9 @@ impl LightBridge {
     }
 
     async fn rpc_route(body: bytes::Bytes, state: web::Data<Arc<LightBridge>>) -> JsonRpcRes {
-        let Ok(json_rpc_req) = serde_json::from_slice::<JsonRpcReq>(&body) else {
-            todo!()
-        };
+        let json_rpc_req = serde_json::from_slice::<JsonRpcReq>(&body).unwrap();
 
         if let RpcMethod::Other = json_rpc_req.method {
-            println!("{:?}", json_rpc_req);
             let res = reqwest::Client::new()
                 .post(state.rpc_url.clone())
                 .body(body)
@@ -166,16 +163,17 @@ impl LightBridge {
                 .await
                 .unwrap();
 
-            println!("{}", res.status());
-            println!("{:?}", res.json::<serde_json::Value>().await.unwrap());
-            todo!()
+            JsonRpcRes::Raw {
+                status: res.status().as_u16(),
+                body: res.text().await.unwrap(),
+            }
+        } else {
+            state
+                .execute_rpc_request(json_rpc_req)
+                .await
+                .try_into()
+                .unwrap()
         }
-
-        state
-            .execute_rpc_request(json_rpc_req)
-            .await
-            .try_into()
-            .unwrap()
     }
 }
 

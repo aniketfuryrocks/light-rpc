@@ -33,6 +33,7 @@ pub struct JsonRpcReq {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum JsonRpcRes {
+    Raw { status: u16, body: String },
     Err(serde_json::Value),
     Ok(serde_json::Value),
 }
@@ -41,6 +42,9 @@ impl Responder for JsonRpcRes {
     type Body = String;
 
     fn respond_to(self, _: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        if let Self::Raw { status, body } = self {
+            return HttpResponse::new(StatusCode::from_u16(status).unwrap()).set_body(body);
+        }
         let mut res = json!({
             "jsonrpc" : "2.0",
             // TODO: add id
@@ -55,6 +59,7 @@ impl Responder for JsonRpcRes {
                 res["result"] = result;
                 HttpResponse::new(StatusCode::OK).set_body(res.to_string())
             }
+            _ => unreachable!(),
         }
     }
 }
