@@ -14,6 +14,8 @@ pub enum RpcMethod {
     SendTransaction(String, #[serde(default)] SendTransactionConfig),
     ConfirmTransaction(String, #[serde(default)] CommitmentConfig),
     GetVersion,
+    #[serde(other)]
+    Other,
 }
 
 /// According to <https://www.jsonrpc.org/specification#overview>

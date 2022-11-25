@@ -3,10 +3,12 @@ use crate::encoding::BinaryEncoding;
 use crate::rpc::{JsonRpcError, JsonRpcRes, RpcMethod};
 use actix_web::{web, App, HttpServer, Responder};
 
+use reqwest::Url;
+use solana_client::rpc_client::RpcClient;
+
 use solana_client::rpc_response::RpcVersionInfo;
-use solana_client::{
-    connection_cache::ConnectionCache, thin_client::ThinClient, tpu_connection::TpuConnection,
-};
+use solana_client::tpu_client::{TpuClient, TpuSenderError};
+use solana_client::{connection_cache::ConnectionCache, tpu_connection::TpuConnection};
 
 use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::transaction::Transaction;
@@ -19,22 +21,35 @@ use std::{
 
 /// A bridge between clients and tpu
 pub struct LightBridge {
-    #[allow(dead_code)]
-    pub thin_client: ThinClient,
-    pub tpu_addr: SocketAddr,
     pub connection_cache: Arc<ConnectionCache>,
+    pub tpu_client: TpuClient,
+    pub rpc_url: Url,
+    pub tpu_addr: SocketAddr,
 }
 
 impl LightBridge {
-    pub fn new(rpc_addr: SocketAddr, tpu_addr: SocketAddr, connection_pool_size: usize) -> Self {
+    pub fn new(
+        rpc_url: reqwest::Url,
+        tpu_addr: SocketAddr,
+        ws_addr: &str,
+        connection_pool_size: usize,
+    ) -> Result<Self, TpuSenderError> {
+        let rpc_client = Arc::new(RpcClient::new(&rpc_url));
         let connection_cache = Arc::new(ConnectionCache::new(connection_pool_size));
-        let thin_client = ThinClient::new(rpc_addr, tpu_addr, connection_cache.clone());
 
-        Self {
-            thin_client,
+        let tpu_client = TpuClient::new_with_connection_cache(
+            rpc_client,
+            ws_addr,
+            Default::default(),
+            connection_cache.clone(),
+        )?;
+
+        Ok(Self {
+            rpc_url,
+            tpu_client,
             tpu_addr,
             connection_cache,
-        }
+        })
     }
 
     pub fn send_transaction(
@@ -107,6 +122,7 @@ impl LightBridge {
                 Ok(self.confirm_transaction(signature, config)?.into())
             }
             RpcMethod::GetVersion => Ok(serde_json::to_value(self.get_version()).unwrap()),
+            RpcMethod::Other => unreachable!(),
         }
     }
 
@@ -132,12 +148,24 @@ impl LightBridge {
         .await
     }
 
-    async fn rpc_route(
-        json_rpc_req: web::Json<RpcMethod>,
-        state: web::Data<Arc<LightBridge>>,
-    ) -> JsonRpcRes {
+    async fn rpc_route(body: bytes::Bytes, state: web::Data<Arc<LightBridge>>) -> JsonRpcRes {
+        let Ok(json_rpc_req) = serde_json::from_slice::<serde_json::Value>(&body) else {
+            todo!()
+        };
+
+        let rpc_method = serde_json::from_value(json_rpc_req.clone()).unwrap();
+
+        if let RpcMethod::Other = rpc_method {
+            reqwest::Client::new()
+                .post(state.rpc_url.clone())
+                .json(&json_rpc_req)
+                .send()
+                .await
+                .unwrap();
+        }
+
         state
-            .execute_rpc_request(json_rpc_req.0)
+            .execute_rpc_request(rpc_method)
             .await
             .try_into()
             .unwrap()

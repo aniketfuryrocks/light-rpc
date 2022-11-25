@@ -1,16 +1,22 @@
-use light_rpc::bridge::LightBridge;
+use std::str::FromStr;
 
-const RPC_ADDR: &str = "127.0.0.1:8899";
+use light_rpc::bridge::LightBridge;
+use reqwest::Url;
+
+const RPC_ADDR: &str = "http://127.0.0.1:8899";
 const TPU_ADDR: &str = "127.0.0.1:1027";
-const CONNECTION_POOL_SIZE: usize = 2000;
+const WS_ADDR: &str = "ws://127.0.0.1:8900";
+const CONNECTION_POOL_SIZE: usize = 1024;
 
 #[tokio::main]
 pub async fn main() -> Result<(), std::io::Error> {
     let light_bridge = LightBridge::new(
-        RPC_ADDR.parse().unwrap(),
+        Url::from_str(RPC_ADDR).unwrap(),
         TPU_ADDR.parse().unwrap(),
+        WS_ADDR,
         CONNECTION_POOL_SIZE,
-    );
+    )
+    .unwrap();
 
     light_bridge.start_server("127.0.0.1:8890").await
 }
