@@ -4,6 +4,8 @@ use std::time::{Duration, Instant};
 use light_rpc::bridge::LightBridge;
 use light_rpc::configs::SendTransactionConfig;
 use light_rpc::encoding::BinaryEncoding;
+use light_rpc::rpc::SendTransactionParams;
+use reqwest::Url;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::native_token::LAMPORTS_PER_SOL;
 use solana_sdk::pubkey::Pubkey;
@@ -12,9 +14,10 @@ use solana_sdk::signer::Signer;
 use solana_sdk::system_instruction;
 use solana_sdk::transaction::Transaction;
 
-const RPC_ADDR: &str = "127.0.0.1:8899";
+const RPC_ADDR: &str = "http://127.0.0.1:8899";
 const TPU_ADDR: &str = "127.0.0.1:1027";
-const CONNECTION_POOL_SIZE: usize = 1;
+const WS_ADDR: &str = "ws://127.0.0.1:8900";
+const CONNECTION_POOL_SIZE: usize = 1024;
 
 const LAMPORTS_TO_SEND_PER_TX: u64 = 1_000_000;
 const PAYER_BANK_BALANCE: u64 = LAMPORTS_PER_SOL * 20;
@@ -38,12 +41,14 @@ struct Metrics {
 #[tokio::main]
 async fn main() {
     let light_bridge = LightBridge::new(
-        RPC_ADDR.parse().unwrap(),
+        Url::from_str(RPC_ADDR).unwrap(),
         TPU_ADDR.parse().unwrap(),
+        WS_ADDR,
         CONNECTION_POOL_SIZE,
-    );
+    )
+    .unwrap();
 
-    let rpc_client = light_bridge.thin_client.rpc_client();
+    let rpc_client = &light_bridge.rpc_client;
 
     let mut wtr = csv::Writer::from_path("metrics.csv").unwrap();
     let mut metrics = Vec::new();
@@ -130,7 +135,7 @@ fn send_funds_to_random_accounts(
         let tx = BinaryEncoding::Base58.encode(bincode::serialize(&tx).unwrap());
 
         let signature = light_bridge
-            .send_transaction(tx, SendTransactionConfig::default())
+            .send_transaction(SendTransactionParams(tx, SendTransactionConfig::default()))
             .unwrap();
 
         transaction_signatures.push(Signature::from_str(&signature).unwrap());

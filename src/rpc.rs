@@ -8,23 +8,32 @@ use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::transport::TransportError;
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct SendTransactionParams(pub String, #[serde(default)] pub SendTransactionConfig);
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ConfirmTransactionParams(pub String, #[serde(default)] pub CommitmentConfig);
+
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[serde(tag = "method", content = "params")]
 pub enum RpcMethod {
-    SendTransaction(String, #[serde(default)] SendTransactionConfig),
-    ConfirmTransaction(String, #[serde(default)] CommitmentConfig),
+    SendTransaction,
+    ConfirmTransaction,
     GetVersion,
+    #[serde(other)]
+    Other,
 }
 
 /// According to <https://www.jsonrpc.org/specification#overview>
 #[derive(Debug, Deserialize, Serialize)]
 pub struct JsonRpcReq {
     pub method: RpcMethod,
-    pub params: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub params: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum JsonRpcRes {
+    Raw { status: u16, body: String },
     Err(serde_json::Value),
     Ok(serde_json::Value),
 }
@@ -33,6 +42,9 @@ impl Responder for JsonRpcRes {
     type Body = String;
 
     fn respond_to(self, _: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        if let Self::Raw { status, body } = self {
+            return HttpResponse::new(StatusCode::from_u16(status).unwrap()).set_body(body);
+        }
         let mut res = json!({
             "jsonrpc" : "2.0",
             // TODO: add id
@@ -47,6 +59,7 @@ impl Responder for JsonRpcRes {
                 res["result"] = result;
                 HttpResponse::new(StatusCode::OK).set_body(res.to_string())
             }
+            _ => unreachable!(),
         }
     }
 }
