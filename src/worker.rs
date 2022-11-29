@@ -3,9 +3,9 @@ use std::task::{Context, Poll};
 
 use futures::Future;
 
-pub struct LightBridge;
+pub struct LightWorker;
 
-impl Future for LightBridge {
+impl Future for LightWorker {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
