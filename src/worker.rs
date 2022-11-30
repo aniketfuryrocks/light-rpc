@@ -7,6 +7,7 @@ use solana_client::{
     nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
     rpc_response,
 };
+use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::signature::Signature;
 use solana_transaction_status::TransactionConfirmationStatus;
 
@@ -33,8 +34,13 @@ impl LightWorker {
     }
 
     /// check if tx is in the confirmed cache
-    pub fn is_tx_confirmed(&self, sig: &Signature) -> ConfirmationStatus {
-        self.confirmed_tx.contains_key(sig)
+    pub async fn confirm_tx(&self, sig: &Signature) -> Option<TransactionConfirmationStatus> {
+        let Some(status) = self.confirmed_tx.get(sig) else {
+            let k = self.rpc_client.get_signature_status_with_commitment(sig, CommitmentConfig::confirmed()).await.unwrap();
+            todo!()
+        };
+
+        Some(status.to_owned())
     }
 
     /// retry enqued_tx(s)
