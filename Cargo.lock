@@ -1836,6 +1836,7 @@ dependencies = [
  "serde_json",
  "solana-client",
  "solana-sdk 1.15.0",
+ "solana-transaction-status",
  "solana-version",
  "thiserror",
  "tokio",
