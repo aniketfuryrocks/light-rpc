@@ -1,27 +1,30 @@
-use crate::configs::SendTransactionConfig;
-use crate::encoding::BinaryEncoding;
-use crate::rpc::{
-    ConfirmTransactionParams, JsonRpcError, JsonRpcReq, JsonRpcRes, RpcMethod,
-    SendTransactionParams,
+use crate::{
+    configs::SendTransactionConfig,
+    encoding::BinaryEncoding,
+    rpc::{
+        ConfirmTransactionParams, JsonRpcError, JsonRpcReq, JsonRpcRes, RpcMethod,
+        SendTransactionParams,
+    },
+    worker::LightWorker,
 };
-use crate::worker::LightWorker;
-use actix_web::{web, App, HttpServer, Responder};
 
-use reqwest::Url;
-use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_client::nonblocking::tpu_client::TpuClient;
-
-use solana_client::rpc_response::RpcVersionInfo;
-use solana_client::tpu_client::TpuSenderError;
-use solana_client::{connection_cache::ConnectionCache, tpu_connection::TpuConnection};
-
-use solana_sdk::transaction::Transaction;
-
-use std::time::Duration;
 use std::{
     net::{SocketAddr, ToSocketAddrs},
+    str::FromStr,
     sync::Arc,
 };
+
+use actix_web::{web, App, HttpServer, Responder};
+use reqwest::Url;
+
+use solana_client::{
+    connection_cache::ConnectionCache,
+    nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
+    rpc_response::RpcVersionInfo,
+    tpu_client::TpuSenderError,
+    tpu_connection::TpuConnection,
+};
+use solana_sdk::{signature::Signature, transaction::Transaction};
 
 /// A bridge between clients and tpu
 pub struct LightBridge {
@@ -63,10 +66,10 @@ impl LightBridge {
         })
     }
 
-    pub fn send_transaction(
+    pub async fn send_transaction(
         &self,
         SendTransactionParams(
-            transaction,
+            tx,
             SendTransactionConfig {
                 skip_preflight: _,       //TODO:
                 preflight_commitment: _, //TODO:
@@ -76,41 +79,27 @@ impl LightBridge {
             },
         ): SendTransactionParams,
     ) -> Result<String, JsonRpcError> {
-        let wire_transaction = encoding.decode(transaction)?;
+        let raw_tx = encoding.decode(tx)?;
 
-        let signature = bincode::deserialize::<Transaction>(&wire_transaction)?.signatures[0];
-        let signature = BinaryEncoding::Base58.encode(signature);
+        let sig = bincode::deserialize::<Transaction>(&raw_tx)?.signatures[0];
 
         let conn = self.connection_cache.get_connection(&self.tpu_addr);
-        conn.send_wire_transaction_async(wire_transaction.clone())?;
+        conn.send_wire_transaction_async(raw_tx.clone())?;
 
-        match max_retries.unwrap_or(5) {
-            0 => (),
-            max_retries => {
-                tokio::spawn(async move {
-                    let mut interval = tokio::time::interval(Duration::from_millis(100));
+        self.worker
+            .enqnue_tx(sig, raw_tx, max_retries.unwrap_or(2))
+            .await;
 
-                    for _ in 0..max_retries {
-                        interval.tick().await;
-
-                        if let Err(_err) =
-                            conn.send_wire_transaction_async(wire_transaction.clone())
-                        {
-                            break;
-                        }
-                    }
-                });
-            }
-        }
-
-        Ok(signature)
+        Ok(BinaryEncoding::Base58.encode(sig))
     }
 
-    pub fn confirm_transaction(
+    pub async fn confirm_transaction(
         &self,
-        ConfirmTransactionParams(_signature, _commitment_cfg): ConfirmTransactionParams,
-    ) -> Result<String, JsonRpcError> {
-        todo!()
+        ConfirmTransactionParams(sig): ConfirmTransactionParams,
+    ) -> Result<bool, JsonRpcError> {
+        let sig = Signature::from_str(&sig)?;
+
+        Ok(self.worker.confirm_tx(&sig).await.is_some())
     }
 
     pub fn get_version(&self) -> RpcVersionInfo {
@@ -128,10 +117,12 @@ impl LightBridge {
     ) -> Result<serde_json::Value, JsonRpcError> {
         match method {
             RpcMethod::SendTransaction => Ok(self
-                .send_transaction(serde_json::from_value(params).unwrap())?
+                .send_transaction(serde_json::from_value(params)?)
+                .await?
                 .into()),
             RpcMethod::ConfirmTransaction => Ok(self
-                .confirm_transaction(serde_json::from_value(params).unwrap())?
+                .confirm_transaction(serde_json::from_value(params)?)
+                .await?
                 .into()),
             RpcMethod::GetVersion => Ok(serde_json::to_value(self.get_version()).unwrap()),
             RpcMethod::Other => unreachable!(),
@@ -166,7 +157,10 @@ impl LightBridge {
     }
 
     async fn rpc_route(body: bytes::Bytes, state: web::Data<Arc<LightBridge>>) -> JsonRpcRes {
-        let json_rpc_req = serde_json::from_slice::<JsonRpcReq>(&body).unwrap();
+        let json_rpc_req = match serde_json::from_slice::<JsonRpcReq>(&body) {
+            Ok(json_rpc_req) => json_rpc_req,
+            Err(err) => return JsonRpcError::SerdeError(err).into(),
+        };
 
         if let RpcMethod::Other = json_rpc_req.method {
             let res = reqwest::Client::new()

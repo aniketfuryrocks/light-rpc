@@ -4,14 +4,14 @@ use actix_web::error::JsonPayloadError;
 use actix_web::{http::StatusCode, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use solana_sdk::commitment_config::CommitmentConfig;
+use solana_sdk::signature::ParseSignatureError;
 use solana_sdk::transport::TransportError;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SendTransactionParams(pub String, #[serde(default)] pub SendTransactionConfig);
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ConfirmTransactionParams(pub String, #[serde(default)] pub CommitmentConfig);
+pub struct ConfirmTransactionParams(pub String);
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,8 +71,14 @@ impl<T: serde::Serialize> TryFrom<Result<T, JsonRpcError>> for JsonRpcRes {
         Ok(match result {
             Ok(value) => Self::Ok(serde_json::to_value(value)?),
             // TODO: add custom handle
-            Err(error) => Self::Err(serde_json::Value::String(format!("{error:?}"))),
+            Err(error) => error.into(),
         })
+    }
+}
+
+impl From<JsonRpcError> for JsonRpcRes {
+    fn from(error: JsonRpcError) -> Self {
+        Self::Err(serde_json::Value::String(format!("{error:?}")))
     }
 }
 
@@ -88,4 +94,6 @@ pub enum JsonRpcError {
     SerdeError(#[from] serde_json::Error),
     #[error("JsonPayloadError {0}")]
     JsonPayloadError(#[from] JsonPayloadError),
+    #[error("ParseSignatureError {0}")]
+    ParseSignatureError(#[from] ParseSignatureError),
 }

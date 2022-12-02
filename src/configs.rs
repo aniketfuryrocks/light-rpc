@@ -12,6 +12,6 @@ pub struct SendTransactionConfig {
     pub preflight_commitment: CommitmentLevel,
     #[serde(default)]
     pub encoding: BinaryEncoding,
-    pub max_retries: Option<usize>,
+    pub max_retries: Option<u16>,
     pub min_context_slot: Option<Slot>,
 }

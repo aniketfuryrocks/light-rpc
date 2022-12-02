@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 
@@ -5,11 +6,13 @@ use solana_client::{
     nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
     rpc_response,
 };
-use solana_sdk::commitment_config::CommitmentConfig;
+
 use solana_sdk::signature::Signature;
+use solana_sdk::transaction;
 use solana_transaction_status::TransactionConfirmationStatus;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
+
 
 use crate::RawTransaction;
 
@@ -21,7 +24,7 @@ pub struct LightWorker {
     /// Transactions queue for retrying
     enqued_txs: Arc<RwLock<HashMap<Signature, (RawTransaction, u16)>>>,
     /// Transactions confirmed
-    confirmed_txs: Arc<RwLock<HashMap<Signature, TransactionConfirmationStatus>>>,
+    confirmed_txs: Arc<RwLock<HashSet<Signature>>>,
     /// Rpc Client
     rpc_client: Arc<RpcClient>,
     /// Tpu Client
@@ -48,14 +51,19 @@ impl LightWorker {
     }
 
     /// check if tx is in the confirmed cache
-    pub async fn confirm_tx(&self, sig: &Signature) -> Option<TransactionConfirmationStatus> {
+    ///
+    /// ## Return
+    ///
+    /// None if transaction is un-confirmed
+    /// Some(Err) in case of transaction failure
+    /// Some(Ok(())) if tx is confirmed without failure
+    pub async fn confirm_tx(&self, sig: &Signature) -> Option<transaction::Result<()>> {
         let confirmed_txs = self.confirmed_txs.read().await;
-        let Some(status) = confirmed_txs.get(sig) else {
-            let _k = self.rpc_client.get_signature_status_with_commitment(sig, CommitmentConfig::confirmed()).await.unwrap();
-            todo!()
-        };
-
-        Some(status.to_owned())
+        if confirmed_txs.contains(sig) {
+            Some(Ok(()))
+        } else {
+            self.rpc_client.get_signature_status(sig).await.unwrap()
+        }
     }
 
     /// retry enqued_tx(s)
@@ -116,9 +124,9 @@ impl LightWorker {
 
             match tx_status.confirmation_status() {
                 TransactionConfirmationStatus::Processed => (),
-                status => {
+                _status => {
                     enqued_txs.remove(&signature);
-                    confirmed_txs.insert(signature, status);
+                    confirmed_txs.insert(signature);
                 }
             };
         }
