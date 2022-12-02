@@ -1825,6 +1825,7 @@ name = "light-rpc"
 version = "0.1.0"
 dependencies = [
  "actix-web",
+ "anyhow",
  "base64 0.13.1",
  "bincode",
  "bs58",

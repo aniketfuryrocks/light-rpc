@@ -4,13 +4,15 @@ use crate::rpc::{
     ConfirmTransactionParams, JsonRpcError, JsonRpcReq, JsonRpcRes, RpcMethod,
     SendTransactionParams,
 };
+use crate::worker::LightWorker;
 use actix_web::{web, App, HttpServer, Responder};
 
 use reqwest::Url;
-use solana_client::rpc_client::RpcClient;
+use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_client::nonblocking::tpu_client::TpuClient;
 
 use solana_client::rpc_response::RpcVersionInfo;
-use solana_client::tpu_client::{TpuClient, TpuSenderError};
+use solana_client::tpu_client::TpuSenderError;
 use solana_client::{connection_cache::ConnectionCache, tpu_connection::TpuConnection};
 
 use solana_sdk::transaction::Transaction;
@@ -24,30 +26,35 @@ use std::{
 /// A bridge between clients and tpu
 pub struct LightBridge {
     pub connection_cache: Arc<ConnectionCache>,
-    pub tpu_client: TpuClient,
-    pub rpc_url: Url,
+    pub tpu_client: Arc<TpuClient>,
     pub rpc_client: Arc<RpcClient>,
     pub tpu_addr: SocketAddr,
+    pub rpc_url: Url,
+    pub worker: LightWorker,
 }
 
 impl LightBridge {
-    pub fn new(
+    pub async fn new(
         rpc_url: reqwest::Url,
         tpu_addr: SocketAddr,
         ws_addr: &str,
         connection_pool_size: usize,
     ) -> Result<Self, TpuSenderError> {
-        let rpc_client = Arc::new(RpcClient::new(&rpc_url));
+        let rpc_client = Arc::new(RpcClient::new(rpc_url.to_string()));
         let connection_cache = Arc::new(ConnectionCache::new(connection_pool_size));
 
-        let tpu_client = TpuClient::new_with_connection_cache(
-            rpc_client.clone(),
-            ws_addr,
-            Default::default(),
-            connection_cache.clone(),
-        )?;
+        let tpu_client = Arc::new(
+            TpuClient::new_with_connection_cache(
+                rpc_client.clone(),
+                ws_addr,
+                Default::default(),
+                connection_cache.clone(),
+            )
+            .await?,
+        );
 
         Ok(Self {
+            worker: LightWorker::new(rpc_client.clone(), tpu_client.clone()),
             rpc_url,
             rpc_client,
             tpu_client,
@@ -132,8 +139,9 @@ impl LightBridge {
     }
 
     /// List for `JsonRpc` requests
-    pub async fn start_server(self, addr: impl ToSocketAddrs) -> Result<(), std::io::Error> {
-        let bridge = Arc::new(self);
+    pub async fn start_server(self, addr: impl ToSocketAddrs) -> anyhow::Result<()> {
+        let worker = self.worker.clone();
+        let this = Arc::new(self);
 
         let json_cfg = web::JsonConfig::default().error_handler(|err, req| {
             let err = JsonRpcRes::Err(serde_json::Value::String(format!("{err}")))
@@ -142,15 +150,19 @@ impl LightBridge {
             actix_web::error::ErrorBadRequest(err)
         });
 
-        HttpServer::new(move || {
+        let server = HttpServer::new(move || {
             App::new()
-                .app_data(web::Data::new(bridge.clone()))
+                .app_data(web::Data::new(this.clone()))
                 .app_data(json_cfg.clone())
                 .route("/", web::post().to(Self::rpc_route))
         })
         .bind(addr)?
-        .run()
-        .await
+        .run();
+
+        let (res1, res2) = tokio::join!(server, worker.execute());
+        res1?;
+        res2?;
+        Ok(())
     }
 
     async fn rpc_route(body: bytes::Bytes, state: web::Data<Arc<LightBridge>>) -> JsonRpcRes {

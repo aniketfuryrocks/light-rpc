@@ -9,14 +9,14 @@ const WS_ADDR: &str = "ws://127.0.0.1:8900";
 const CONNECTION_POOL_SIZE: usize = 1024;
 
 #[tokio::main]
-pub async fn main() -> Result<(), std::io::Error> {
+pub async fn main() -> anyhow::Result<()> {
     let light_bridge = LightBridge::new(
         Url::from_str(RPC_ADDR).unwrap(),
         TPU_ADDR.parse().unwrap(),
         WS_ADDR,
         CONNECTION_POOL_SIZE,
     )
-    .unwrap();
+    .await.unwrap();
 
     light_bridge.start_server("127.0.0.1:8890").await
 }
