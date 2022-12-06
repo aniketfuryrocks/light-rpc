@@ -1,28 +1,23 @@
-use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-use light_rpc::bridge::LightBridge;
-use light_rpc::configs::SendTransactionConfig;
-use light_rpc::encoding::BinaryEncoding;
-use light_rpc::rpc::SendTransactionParams;
-use reqwest::Url;
-use solana_client::rpc_client::RpcClient;
+use light_rpc::client::LightClient;
+use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::native_token::LAMPORTS_PER_SOL;
 use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signature::{Keypair, Signature};
+use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use solana_sdk::system_instruction;
 use solana_sdk::transaction::Transaction;
 
-const RPC_ADDR: &str = "http://127.0.0.1:8899";
+const RPC_ADDR: &str = "http://127.0.0.1:8890";
 const TPU_ADDR: &str = "127.0.0.1:1027";
 const WS_ADDR: &str = "ws://127.0.0.1:8900";
 const CONNECTION_POOL_SIZE: usize = 1024;
 
 const LAMPORTS_TO_SEND_PER_TX: u64 = 1_000_000;
 const PAYER_BANK_BALANCE: u64 = LAMPORTS_PER_SOL * 20;
-const NUMBER_OF_TXS: u64 = 2000;
-const NUMBER_OF_RUNS: u64 = 5;
+const NUMBER_OF_TXS: u64 = 1;
+const NUMBER_OF_RUNS: u64 = 1;
 
 #[derive(serde::Serialize)]
 struct Metrics {
@@ -40,24 +35,16 @@ struct Metrics {
 
 #[tokio::main]
 async fn main() {
-    let light_bridge = LightBridge::new(
-        Url::from_str(RPC_ADDR).unwrap(),
-        TPU_ADDR.parse().unwrap(),
-        WS_ADDR,
-        CONNECTION_POOL_SIZE,
-    )
-    .unwrap();
-
-    let rpc_client = &light_bridge.rpc_client;
+    let light_client = LightClient(RpcClient::new(RPC_ADDR.to_string()));
 
     let mut wtr = csv::Writer::from_path("metrics.csv").unwrap();
     let mut metrics = Vec::new();
 
-    let payer = create_and_confirm_new_account_with_funds(rpc_client, PAYER_BANK_BALANCE);
+    let payer = create_and_confirm_new_account_with_funds(&light_client, PAYER_BANK_BALANCE).await;
 
     // send transactions
     for _ in 0..NUMBER_OF_RUNS {
-        let lastest_block_hash = rpc_client.get_latest_blockhash().unwrap();
+        let lastest_block_hash = light_client.get_latest_blockhash().await.unwrap();
 
         //
         // Send TX's
@@ -66,12 +53,13 @@ async fn main() {
         let send_start_time = Instant::now();
 
         let signatures = send_funds_to_random_accounts(
-            &light_bridge,
+            &light_client,
             &payer,
             lastest_block_hash,
             NUMBER_OF_TXS,
             LAMPORTS_TO_SEND_PER_TX,
-        );
+        )
+        .await;
 
         let time_to_send_txs = send_start_time.elapsed().as_millis();
 
@@ -81,7 +69,7 @@ async fn main() {
 
         let confirm_start_time = Instant::now();
 
-        confirm_transactions(rpc_client, signatures);
+        confirm_transactions(&light_client, signatures).await;
 
         let time_to_confirm_txs = confirm_start_time.elapsed().as_millis();
 
@@ -99,26 +87,30 @@ async fn main() {
     }
 }
 
-fn create_and_confirm_new_account_with_funds(rpc_client: &RpcClient, funds: u64) -> Keypair {
+async fn create_and_confirm_new_account_with_funds(
+    light_client: &LightClient,
+    funds: u64,
+) -> Keypair {
     let payer = Keypair::new();
     let payer_pub_key = payer.pubkey();
 
-    let airdrop_signature = rpc_client
+    let airdrop_signature = light_client
         .request_airdrop(&payer_pub_key, funds)
+        .await
         .expect("error requesting airdrop");
 
-    confirm_transactions(rpc_client, vec![airdrop_signature]);
+    confirm_transactions(light_client, vec![airdrop_signature.to_string()]).await;
 
     payer
 }
 
-fn send_funds_to_random_accounts(
-    light_bridge: &LightBridge,
+async fn send_funds_to_random_accounts(
+    light_client: &LightClient,
     payer: &Keypair,
     latest_blockhash: solana_sdk::hash::Hash,
     number_of_accounts: u64,
     amount_to_send: u64,
-) -> Vec<Signature> {
+) -> Vec<String> {
     let mut transaction_signatures = Vec::with_capacity(number_of_accounts as usize);
 
     for _ in 0..number_of_accounts {
@@ -132,28 +124,21 @@ fn send_funds_to_random_accounts(
             latest_blockhash,
         );
 
-        let tx = BinaryEncoding::Base58.encode(bincode::serialize(&tx).unwrap());
+        let signature = light_client.send_transaction(&tx).await.unwrap();
 
-        let signature = light_bridge
-            .send_transaction(SendTransactionParams(tx, SendTransactionConfig::default()))
-            .unwrap();
-
-        transaction_signatures.push(Signature::from_str(&signature).unwrap());
+        transaction_signatures.push(signature.to_string());
     }
 
     transaction_signatures
 }
 
-fn confirm_transactions(rpc_client: &RpcClient, mut signatures: Vec<Signature>) {
+async fn confirm_transactions(light_client: &LightClient, mut signatures: Vec<String>) {
     let mut signatures_to_retry = Vec::with_capacity(signatures.len());
 
     loop {
         for signature in signatures {
             eprintln!("confirming {}", signature);
-            if rpc_client
-                .confirm_transaction(&signature)
-                .expect("Error confirming TX")
-            {
+            if light_client.confirm_transaction(signature.clone()).await {
                 eprintln!("signature finalized: {signature}");
             } else {
                 signatures_to_retry.push(signature);
