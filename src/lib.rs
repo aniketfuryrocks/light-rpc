@@ -1,4 +1,5 @@
 pub mod bridge;
+pub mod client;
 pub mod configs;
 pub mod encoding;
 pub mod rpc;

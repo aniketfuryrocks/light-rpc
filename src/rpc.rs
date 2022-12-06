@@ -11,7 +11,7 @@ use solana_sdk::transport::TransportError;
 pub struct SendTransactionParams(pub String, #[serde(default)] pub SendTransactionConfig);
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ConfirmTransactionParams(pub String);
+pub struct ConfirmTransactionParams(pub String, #[serde(default)] pub Option<()>);
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

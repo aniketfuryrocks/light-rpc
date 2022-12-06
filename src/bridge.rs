@@ -87,7 +87,7 @@ impl LightBridge {
         conn.send_wire_transaction_async(raw_tx.clone())?;
 
         self.worker
-            .enqnue_tx(sig, raw_tx, max_retries.unwrap_or(2))
+            .enqnue_tx(sig, raw_tx, max_retries.unwrap_or(5))
             .await;
 
         Ok(BinaryEncoding::Base58.encode(sig))
@@ -95,11 +95,12 @@ impl LightBridge {
 
     pub async fn confirm_transaction(
         &self,
-        ConfirmTransactionParams(sig): ConfirmTransactionParams,
+        ConfirmTransactionParams(sig, _): ConfirmTransactionParams,
     ) -> Result<bool, JsonRpcError> {
+        println!("confirming tx");
         let sig = Signature::from_str(&sig)?;
 
-        Ok(self.worker.confirm_tx(&sig).await.is_some())
+        Ok(self.worker.confirm_tx(sig).await.is_some())
     }
 
     pub fn get_version(&self) -> RpcVersionInfo {
@@ -163,6 +164,7 @@ impl LightBridge {
         };
 
         if let RpcMethod::Other = json_rpc_req.method {
+            println!("other");
             let res = reqwest::Client::new()
                 .post(state.rpc_url.clone())
                 .body(body)
@@ -205,14 +207,15 @@ mod tests {
     const WS_ADDR: &str = "ws://127.0.0.1:8900";
     const CONNECTION_POOL_SIZE: usize = 1024;
 
-    #[test]
-    fn get_version() {
+    #[tokio::test]
+    async fn get_version() {
         let light_bridge = LightBridge::new(
             Url::from_str(RPC_ADDR).unwrap(),
             TPU_ADDR.parse().unwrap(),
             WS_ADDR,
             CONNECTION_POOL_SIZE,
         )
+        .await
         .unwrap();
 
         let RpcVersionInfo {
@@ -233,12 +236,14 @@ mod tests {
             WS_ADDR,
             CONNECTION_POOL_SIZE,
         )
+        .await
         .unwrap();
 
         let payer = Keypair::new();
         light_bridge
             .rpc_client
             .request_airdrop(&payer.pubkey(), LAMPORTS_PER_SOL * 2)
+            .await
             .unwrap();
 
         std::thread::sleep(Duration::from_secs(2));
@@ -249,7 +254,11 @@ mod tests {
 
         let message = Message::new(&[instruction], Some(&payer.pubkey()));
 
-        let blockhash = light_bridge.rpc_client.get_latest_blockhash().unwrap();
+        let blockhash = light_bridge
+            .rpc_client
+            .get_latest_blockhash()
+            .await
+            .unwrap();
 
         let tx = Transaction::new(&[&payer], message, blockhash);
         let signature = tx.signatures[0];
@@ -260,6 +269,7 @@ mod tests {
         assert_eq!(
             light_bridge
                 .send_transaction(SendTransactionParams(tx, Default::default()))
+                .await
                 .unwrap(),
             encoded_signature
         );
@@ -272,6 +282,7 @@ mod tests {
             passed = light_bridge
                 .rpc_client
                 .confirm_transaction(&signature)
+                .await
                 .unwrap();
 
             std::thread::sleep(Duration::from_millis(100));

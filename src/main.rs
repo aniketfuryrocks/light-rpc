@@ -16,7 +16,8 @@ pub async fn main() -> anyhow::Result<()> {
         WS_ADDR,
         CONNECTION_POOL_SIZE,
     )
-    .await.unwrap();
+    .await
+    .unwrap();
 
     light_bridge.start_server("127.0.0.1:8890").await
 }
