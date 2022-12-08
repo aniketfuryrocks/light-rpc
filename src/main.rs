@@ -5,7 +5,8 @@ use reqwest::Url;
 use simplelog::*;
 
 const RPC_ADDR: &str = "http://5.62.126.197:9000/";
-const WS_ADDR: &str = "ws://127.0.0.1:8900";
+const WS_ADDR: &str = "http://5.62.126.192:9001/";
+//const WS_ADDR: &str = "ws://127.0.0.1:8900";
 
 #[tokio::main]
 pub async fn main() -> anyhow::Result<()> {
