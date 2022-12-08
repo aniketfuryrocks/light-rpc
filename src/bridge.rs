@@ -8,61 +8,36 @@ use crate::{
     worker::LightWorker,
 };
 
-use std::{
-    net::{SocketAddr, ToSocketAddrs},
-    str::FromStr,
-    sync::Arc,
-};
+use std::{net::ToSocketAddrs, str::FromStr, sync::Arc};
 
 use actix_web::{web, App, HttpServer, Responder};
 use reqwest::Url;
 
 use solana_client::{
-    connection_cache::ConnectionCache,
     nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
     rpc_response::RpcVersionInfo,
     tpu_client::TpuSenderError,
-    tpu_connection::TpuConnection,
 };
 use solana_sdk::{signature::Signature, transaction::Transaction};
 
 /// A bridge between clients and tpu
 pub struct LightBridge {
-    pub connection_cache: Arc<ConnectionCache>,
     pub tpu_client: Arc<TpuClient>,
-    pub rpc_client: Arc<RpcClient>,
-    pub tpu_addr: SocketAddr,
     pub rpc_url: Url,
     pub worker: LightWorker,
 }
 
 impl LightBridge {
-    pub async fn new(
-        rpc_url: reqwest::Url,
-        tpu_addr: SocketAddr,
-        ws_addr: &str,
-        connection_pool_size: usize,
-    ) -> Result<Self, TpuSenderError> {
+    pub async fn new(rpc_url: reqwest::Url, ws_addr: &str) -> Result<Self, TpuSenderError> {
         let rpc_client = Arc::new(RpcClient::new(rpc_url.to_string()));
-        let connection_cache = Arc::new(ConnectionCache::new(connection_pool_size));
 
-        let tpu_client = Arc::new(
-            TpuClient::new_with_connection_cache(
-                rpc_client.clone(),
-                ws_addr,
-                Default::default(),
-                connection_cache.clone(),
-            )
-            .await?,
-        );
+        let tpu_client =
+            Arc::new(TpuClient::new(rpc_client.clone(), ws_addr, Default::default()).await?);
 
         Ok(Self {
-            worker: LightWorker::new(rpc_client.clone(), tpu_client.clone()),
+            worker: LightWorker::new(tpu_client.clone()),
             rpc_url,
-            rpc_client,
             tpu_client,
-            tpu_addr,
-            connection_cache,
         })
     }
 
@@ -83,8 +58,7 @@ impl LightBridge {
 
         let sig = bincode::deserialize::<Transaction>(&raw_tx)?.signatures[0];
 
-        let conn = self.connection_cache.get_connection(&self.tpu_addr);
-        conn.send_wire_transaction_async(raw_tx.clone())?;
+        self.tpu_client.send_wire_transaction(raw_tx.clone()).await;
 
         self.worker
             .enqnueue_tx(sig, raw_tx, max_retries.unwrap_or(5))
@@ -202,20 +176,13 @@ mod tests {
     use crate::{bridge::LightBridge, encoding::BinaryEncoding};
 
     const RPC_ADDR: &str = "http://127.0.0.1:8899";
-    const TPU_ADDR: &str = "127.0.0.1:1027";
     const WS_ADDR: &str = "ws://127.0.0.1:8900";
-    const CONNECTION_POOL_SIZE: usize = 1024;
 
     #[tokio::test]
     async fn get_version() {
-        let light_bridge = LightBridge::new(
-            Url::from_str(RPC_ADDR).unwrap(),
-            TPU_ADDR.parse().unwrap(),
-            WS_ADDR,
-            CONNECTION_POOL_SIZE,
-        )
-        .await
-        .unwrap();
+        let light_bridge = LightBridge::new(Url::from_str(RPC_ADDR).unwrap(), WS_ADDR)
+            .await
+            .unwrap();
 
         let RpcVersionInfo {
             solana_core,
@@ -229,18 +196,15 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_send_transaction() {
-        let light_bridge = LightBridge::new(
-            Url::from_str(RPC_ADDR).unwrap(),
-            TPU_ADDR.parse().unwrap(),
-            WS_ADDR,
-            CONNECTION_POOL_SIZE,
-        )
-        .await
-        .unwrap();
+        let light_bridge = LightBridge::new(Url::from_str(RPC_ADDR).unwrap(), WS_ADDR)
+            .await
+            .unwrap();
 
         let payer = Keypair::new();
+
         light_bridge
-            .rpc_client
+            .tpu_client
+            .rpc_client()
             .request_airdrop(&payer.pubkey(), LAMPORTS_PER_SOL * 2)
             .await
             .unwrap();
@@ -254,7 +218,8 @@ mod tests {
         let message = Message::new(&[instruction], Some(&payer.pubkey()));
 
         let blockhash = light_bridge
-            .rpc_client
+            .tpu_client
+            .rpc_client()
             .get_latest_blockhash()
             .await
             .unwrap();
@@ -279,7 +244,8 @@ mod tests {
 
         for _ in 0..100 {
             passed = light_bridge
-                .rpc_client
+                .tpu_client
+                .rpc_client()
                 .confirm_transaction(&signature)
                 .await
                 .unwrap();

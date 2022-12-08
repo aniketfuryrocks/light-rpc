@@ -10,9 +10,6 @@ use solana_sdk::system_instruction;
 use solana_sdk::transaction::Transaction;
 
 const RPC_ADDR: &str = "http://127.0.0.1:8890";
-const TPU_ADDR: &str = "127.0.0.1:1027";
-const WS_ADDR: &str = "ws://127.0.0.1:8900";
-const CONNECTION_POOL_SIZE: usize = 1024;
 
 const LAMPORTS_TO_SEND_PER_TX: u64 = 1_000_000;
 const PAYER_BANK_BALANCE: u64 = LAMPORTS_PER_SOL * 20;

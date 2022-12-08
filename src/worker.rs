@@ -1,13 +1,12 @@
 use std::collections::HashSet;
+
 use std::sync::Mutex;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 
 use log::{info, warn};
-use solana_client::{
-    nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
-    rpc_response,
-};
+
+use solana_client::{nonblocking::tpu_client::TpuClient, rpc_response};
 
 use solana_sdk::signature::Signature;
 use solana_sdk::transaction;
@@ -26,18 +25,14 @@ pub struct LightWorker {
     enqueued_txs: Arc<RwLock<HashMap<Signature, (WireTransaction, u16)>>>,
     /// Transactions confirmed
     confirmed_txs: Arc<RwLock<HashSet<Signature>>>,
-    /// Rpc Client
-    rpc_client: Arc<RpcClient>,
-    /// Tpu Client
     tpu_client: Arc<TpuClient>,
 }
 
 impl LightWorker {
-    pub fn new(rpc_client: Arc<RpcClient>, tpu_client: Arc<TpuClient>) -> Self {
+    pub fn new(tpu_client: Arc<TpuClient>) -> Self {
         Self {
             enqueued_txs: Default::default(),
             confirmed_txs: Default::default(),
-            rpc_client,
             tpu_client,
         }
     }
@@ -65,7 +60,12 @@ impl LightWorker {
         if self.confirmed_txs.read().await.contains(&sig) {
             Some(Ok(()))
         } else {
-            let res = self.rpc_client.get_signature_status(&sig).await.unwrap();
+            let res = self
+                .tpu_client
+                .rpc_client()
+                .get_signature_status(&sig)
+                .await
+                .unwrap();
             if res.is_some() {
                 self.enqueued_txs.write().await.remove(&sig);
                 self.confirmed_txs.write().await.insert(sig);
@@ -137,7 +137,8 @@ impl LightWorker {
         let signatures: Vec<Signature> = enqued_txs.keys().cloned().collect();
 
         let rpc_response::Response { context: _, value } = self
-            .rpc_client
+            .tpu_client
+            .rpc_client()
             .get_signature_statuses(&signatures)
             .await
             .unwrap();
@@ -222,7 +223,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let worker = LightWorker::new(rpc_client.clone(), tpu_client);
+        let worker = LightWorker::new(tpu_client);
         worker.clone().execute();
 
         let tx = create_transaction(&rpc_client).await;
