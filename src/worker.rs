@@ -16,7 +16,7 @@ use tokio::task::JoinHandle;
 
 use crate::WireTransaction;
 
-const RETRY_BATCH_SIZE: usize = 5;
+const RETRY_BATCH_SIZE: usize = 10;
 
 /// Retry transactions to a maximum of `u16` times, keep a track of confirmed transactions
 #[derive(Clone)]

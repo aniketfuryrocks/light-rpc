@@ -18,7 +18,7 @@ use solana_client::{
     rpc_response::RpcVersionInfo,
     tpu_client::TpuSenderError,
 };
-use solana_sdk::{signature::Signature, transaction::Transaction};
+use solana_sdk::{signature::Signature, transaction::VersionedTransaction};
 
 /// A bridge between clients and tpu
 pub struct LightBridge {
@@ -56,7 +56,7 @@ impl LightBridge {
     ) -> Result<String, JsonRpcError> {
         let raw_tx = encoding.decode(tx)?;
 
-        let sig = bincode::deserialize::<Transaction>(&raw_tx)?.signatures[0];
+        let sig = bincode::deserialize::<VersionedTransaction>(&raw_tx)?.signatures[0];
 
         self.tpu_client.send_wire_transaction(raw_tx.clone()).await;
 
