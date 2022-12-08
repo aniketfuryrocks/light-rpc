@@ -87,7 +87,7 @@ impl LightBridge {
         conn.send_wire_transaction_async(raw_tx.clone())?;
 
         self.worker
-            .enqnue_tx(sig, raw_tx, max_retries.unwrap_or(5))
+            .enqnueue_tx(sig, raw_tx, max_retries.unwrap_or(5))
             .await;
 
         Ok(BinaryEncoding::Base58.encode(sig))
@@ -132,8 +132,8 @@ impl LightBridge {
 
     /// List for `JsonRpc` requests
     pub async fn start_server(self, addr: impl ToSocketAddrs) -> anyhow::Result<()> {
-        let worker = self.worker.clone();
         let this = Arc::new(self);
+        let worker = this.worker.clone().execute();
 
         let json_cfg = web::JsonConfig::default().error_handler(|err, req| {
             let err = JsonRpcRes::Err(serde_json::Value::String(format!("{err}")))
@@ -151,7 +151,7 @@ impl LightBridge {
         .bind(addr)?
         .run();
 
-        let (res1, res2) = tokio::join!(server, worker.execute());
+        let (res1, res2) = tokio::join!(server, worker);
         res1?;
         res2?;
         Ok(())
@@ -164,7 +164,6 @@ impl LightBridge {
         };
 
         if let RpcMethod::Other = json_rpc_req.method {
-            println!("other");
             let res = reqwest::Client::new()
                 .post(state.rpc_url.clone())
                 .body(body)

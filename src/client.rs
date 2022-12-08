@@ -25,7 +25,7 @@ impl LightClient {
             RpcRequest::Custom {
                 method: "confirmTransaction",
             },
-            serde_json::json!([signature])
+            serde_json::json!([signature]),
         )
         .await
         .unwrap()

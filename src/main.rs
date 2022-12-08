@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use light_rpc::bridge::LightBridge;
 use reqwest::Url;
+use simplelog::*;
 
 const RPC_ADDR: &str = "http://127.0.0.1:8899";
 const TPU_ADDR: &str = "127.0.0.1:1027";
@@ -10,6 +11,13 @@ const CONNECTION_POOL_SIZE: usize = 1024;
 
 #[tokio::main]
 pub async fn main() -> anyhow::Result<()> {
+    TermLogger::init(
+        LevelFilter::Info,
+        Config::default(),
+        TerminalMode::Mixed,
+        ColorChoice::Auto,
+    )?;
+
     let light_bridge = LightBridge::new(
         Url::from_str(RPC_ADDR).unwrap(),
         TPU_ADDR.parse().unwrap(),
