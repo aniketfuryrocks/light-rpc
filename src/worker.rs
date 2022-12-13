@@ -25,6 +25,7 @@ pub struct LightWorker {
     enqueued_txs: Arc<RwLock<HashMap<Signature, (WireTransaction, u16)>>>,
     /// Transactions confirmed
     confirmed_txs: Arc<RwLock<HashSet<Signature>>>,
+    /// TpuClient to call the tpu port
     tpu_client: Arc<TpuClient>,
 }
 
