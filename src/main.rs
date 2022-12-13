@@ -16,12 +16,9 @@ pub async fn main() -> anyhow::Result<()> {
         ColorChoice::Auto,
     )?;
 
-    let light_bridge = LightBridge::new(
-        Url::from_str(RPC_ADDR).unwrap(),
-        WS_ADDR,
-    )
-    .await
-    .unwrap();
+    let light_bridge = LightBridge::new(Url::from_str(RPC_ADDR).unwrap(), WS_ADDR)
+        .await
+        .unwrap();
 
     light_bridge.start_server("127.0.0.1:8890").await
 }

@@ -58,6 +58,7 @@ impl LightWorker {
     /// Some(Ok(())) if tx is confirmed without failure
     pub async fn confirm_tx(&self, sig: Signature) -> Option<transaction::Result<()>> {
         if self.confirmed_txs.read().await.contains(&sig) {
+            info!("Confirmed {sig} from cache");
             Some(Ok(()))
         } else {
             let res = self
@@ -136,12 +137,13 @@ impl LightWorker {
 
         let signatures: Vec<Signature> = enqued_txs.keys().cloned().collect();
 
-        let rpc_response::Response { context: _, value } = self
+        let Ok(rpc_response::Response { context: _, value }) = self
             .tpu_client
             .rpc_client()
             .get_signature_statuses(&signatures)
-            .await
-            .unwrap();
+            .await else {
+                return;
+        };
 
         let mut signatures = signatures.iter();
 
@@ -191,10 +193,9 @@ impl LightWorker {
                 }
                 info!("{} tx(s) en-queued", self.enqueued_txs.read().await.len());
                 info!("{} tx(s) confirmed", self.confirmed_txs.read().await.len());
-                self.retry_txs().await;
-                interval.tick().await;
                 self.confirm_txs().await;
                 interval.tick().await;
+                self.retry_txs().await;
             }
         })
     }

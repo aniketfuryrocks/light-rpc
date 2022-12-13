@@ -61,7 +61,7 @@ impl LightBridge {
         self.tpu_client.send_wire_transaction(raw_tx.clone()).await;
 
         self.worker
-            .enqnueue_tx(sig, raw_tx, max_retries.unwrap_or(5))
+            .enqnueue_tx(sig, raw_tx, max_retries.unwrap_or(1))
             .await;
 
         Ok(BinaryEncoding::Base58.encode(sig))
@@ -71,7 +71,6 @@ impl LightBridge {
         &self,
         ConfirmTransactionParams(sig, _): ConfirmTransactionParams,
     ) -> Result<bool, JsonRpcError> {
-        println!("confirming tx");
         let sig = Signature::from_str(&sig)?;
 
         Ok(self.worker.confirm_tx(sig).await.is_some())

@@ -13,7 +13,7 @@ const RPC_ADDR: &str = "http://127.0.0.1:8890";
 
 const LAMPORTS_TO_SEND_PER_TX: u64 = 1_000_000;
 const PAYER_BANK_BALANCE: u64 = LAMPORTS_PER_SOL * 20;
-const NUMBER_OF_TXS: u64 = 1;
+const NUMBER_OF_TXS: u64 = 1000;
 const NUMBER_OF_RUNS: u64 = 1;
 
 #[derive(serde::Serialize)]
@@ -134,7 +134,7 @@ async fn confirm_transactions(light_client: &LightClient, mut signatures: Vec<St
 
     loop {
         for signature in signatures {
-            if light_client.confirm_transaction(signature.clone()).await {
+            if light_client.confirm_transaction(signature.clone()).await.value {
                 eprintln!("confirmed : {signature}");
             } else {
                 eprintln!("confirming {}", signature);
