@@ -34,6 +34,10 @@ impl TxSender {
     }
     /// en-queue transaction if it doesn't already exist
     pub async fn enqnueue_tx(&self, sig: Signature, raw_tx: WireTransaction, max_retries: u16) {
+        if max_retries == 0 {
+            return;
+        }
+
         if !self
             .block_listner
             .confirmed_txs
@@ -53,11 +57,13 @@ impl TxSender {
 
     /// retry enqued_tx(s)
     pub async fn retry_txs(&self) {
-        if self.has_no_work().await {
+        let len = self.enqueued_txs.read().await.len();
+
+        info!("retrying {len} tx(s)");
+
+        if len == 0 {
             return;
         }
-
-        info!("retrying tx(s)");
 
         let mut enqued_tx = self.enqueued_txs.write().await;
 
@@ -67,6 +73,17 @@ impl TxSender {
         let mut batch_index = 0;
 
         for (index, (sig, (tx, retries))) in enqued_tx.iter_mut().enumerate() {
+            if self
+                .block_listner
+                .confirmed_txs
+                .read()
+                .await
+                .contains(&sig.to_string())
+            {
+                stale_txs.push(sig.to_owned());
+                continue;
+            }
+
             if index % DEFAULT_TX_RETRY_BATCH_SIZE == 0 {
                 tx_batch.push(Vec::with_capacity(DEFAULT_TX_RETRY_BATCH_SIZE));
                 batch_index += 1;
@@ -98,11 +115,6 @@ impl TxSender {
                 warn!("{err}");
             }
         }
-    }
-
-    /// check if any transaction is pending, still enqueued
-    pub async fn has_no_work(&self) -> bool {
-        self.enqueued_txs.read().await.is_empty()
     }
 
     /// retry and confirm transactions every 800ms (avg time to confirm tx)
