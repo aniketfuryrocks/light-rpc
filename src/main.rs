@@ -1,7 +1,8 @@
 use std::str::FromStr;
 
+use clap::Parser;
 use light_rpc::bridge::LightBridge;
-use light_rpc::{DEFAULT_RPC_ADDR, DEFAULT_WS_ADDR};
+use light_rpc::cli::Args;
 use reqwest::Url;
 use simplelog::*;
 
@@ -14,10 +15,15 @@ pub async fn main() -> anyhow::Result<()> {
         ColorChoice::Auto,
     )?;
 
-    let light_bridge =
-        LightBridge::new(Url::from_str(DEFAULT_RPC_ADDR).unwrap(), DEFAULT_WS_ADDR).await?;
+    let Args {
+        rpc_addr,
+        ws_addr,
+        lite_rpc_addr,
+    } = Args::parse();
 
-    let services = light_bridge.start_services("127.0.0.1:8890");
+    let light_bridge = LightBridge::new(Url::from_str(&rpc_addr).unwrap(), &ws_addr).await?;
+
+    let services = light_bridge.start_services(lite_rpc_addr);
     let services = futures::future::join_all(services);
 
     let ctrl_c_signal = tokio::signal::ctrl_c();
