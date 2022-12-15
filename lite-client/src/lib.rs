@@ -1,12 +1,12 @@
 use std::ops::{Deref, DerefMut};
 
-use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_client::rpc_request::RpcRequest;
-use solana_client::rpc_response::Response as RpcResponse;
+use solana_client::{nonblocking::rpc_client::RpcClient, rpc_request::RpcRequest};
 
-pub struct LightClient(pub RpcClient);
+pub const LOCAL_LIGHT_RPC_ADDR: &str = "http://127.0.0.1:8890";
 
-impl Deref for LightClient {
+pub struct LiteClient(pub RpcClient);
+
+impl Deref for LiteClient {
     type Target = RpcClient;
 
     fn deref(&self) -> &Self::Target {
@@ -14,14 +14,14 @@ impl Deref for LightClient {
     }
 }
 
-impl DerefMut for LightClient {
+impl DerefMut for LiteClient {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl LightClient {
-    pub async fn confirm_transaction(&self, signature: String) -> RpcResponse<bool> {
+impl LiteClient {
+    pub async fn confirm_transaction(&self, signature: String) -> bool {
         self.send(
             RpcRequest::Custom {
                 method: "confirmTransaction",

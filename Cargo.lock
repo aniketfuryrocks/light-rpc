@@ -425,6 +425,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b645a089122eccb6111b4f81cbc1a49f5900ac4666bb93ac027feaecf15607bf"
 
 [[package]]
+name = "bench-utils"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "lite-client",
+ "log",
+ "serde",
+ "solana-client",
+ "solana-sdk 1.15.0",
+]
+
+[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1833,11 +1845,13 @@ dependencies = [
  "actix-web",
  "anyhow",
  "base64 0.20.0",
+ "bench-utils",
  "bincode",
  "bs58",
  "bytes",
  "csv",
  "futures",
+ "lite-client",
  "log",
  "reqwest",
  "serde",
@@ -1858,6 +1872,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9272ab7b96c9046fbc5bc56c06c117cb639fe2d509df0c421cad82d2915cf369"
 dependencies = [
  "cc",
+]
+
+[[package]]
+name = "lite-client"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "solana-client",
 ]
 
 [[package]]
