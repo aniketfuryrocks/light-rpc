@@ -1,4 +1,3 @@
-use std::sync::Mutex;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 
@@ -108,30 +107,19 @@ impl LightWorker {
     }
 
     /// retry and confirm transactions every 800ms (avg time to confirm tx)
-    pub fn execute(self) -> JoinHandle<()> {
-        let mut interval = tokio::time::interval(Duration::from_secs(2));
-        let run = Arc::new(Mutex::new(true));
+    pub fn execute(self) -> JoinHandle<anyhow::Result<()>> {
+        let mut interval = tokio::time::interval(Duration::from_secs(800));
 
-        {
-            let run = run.clone();
-            tokio::spawn(async move {
-                tokio::signal::ctrl_c()
-                    .await
-                    .expect("failed to listen for event");
-                *run.lock().unwrap() = false;
-            });
-        }
-
+        #[allow(unreachable_code)]
         tokio::spawn(async move {
             loop {
-                if !*run.lock().unwrap() {
-                    warn!("Terminating LightWorker due to ctrl_c interrupt");
-                    break;
-                }
                 info!("{} tx(s) en-queued", self.enqueued_txs.read().await.len());
                 interval.tick().await;
                 self.retry_txs().await;
             }
+
+            // to give the correct type to JoinHandle
+            Ok(())
         })
     }
 }

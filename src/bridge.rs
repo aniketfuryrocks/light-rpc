@@ -19,6 +19,7 @@ use solana_client::{
     rpc_response::RpcVersionInfo,
 };
 use solana_sdk::{signature::Signature, transaction::VersionedTransaction};
+use tokio::task::JoinHandle;
 
 /// A bridge between clients and tpu
 pub struct LightBridge {
@@ -108,7 +109,10 @@ impl LightBridge {
     }
 
     /// List for `JsonRpc` requests
-    pub async fn start_server(self, addr: impl ToSocketAddrs) -> anyhow::Result<()> {
+    pub fn start_services(
+        self,
+        addr: impl ToSocketAddrs + Send + 'static,
+    ) -> Vec<JoinHandle<anyhow::Result<()>>> {
         let this = Arc::new(self);
         let worker = this.worker.clone().execute();
         let block_listenser = this.block_listner.clone().listen();
@@ -120,20 +124,22 @@ impl LightBridge {
             actix_web::error::ErrorBadRequest(err)
         });
 
-        let server = HttpServer::new(move || {
-            App::new()
-                .app_data(web::Data::new(this.clone()))
-                .app_data(json_cfg.clone())
-                .route("/", web::post().to(Self::rpc_route))
-        })
-        .bind(addr)?
-        .run();
+        let server = tokio::spawn(async move {
+            let server = HttpServer::new(move || {
+                App::new()
+                    .app_data(web::Data::new(this.clone()))
+                    .app_data(json_cfg.clone())
+                    .route("/", web::post().to(Self::rpc_route))
+            })
+            .bind(addr)?
+            .run();
 
-        let (res1, res2, res3) = tokio::join!(server, worker, block_listenser);
-        res1?;
-        res2?;
-        res3??;
-        Ok(())
+            server.await?;
+
+            Ok(())
+        });
+
+        vec![worker, block_listenser, server]
     }
 
     async fn rpc_route(body: bytes::Bytes, state: web::Data<Arc<LightBridge>>) -> JsonRpcRes {

@@ -134,7 +134,11 @@ async fn confirm_transactions(light_client: &LightClient, mut signatures: Vec<St
 
     loop {
         for signature in signatures {
-            if light_client.confirm_transaction(signature.clone()).await.value {
+            if light_client
+                .confirm_transaction(signature.clone())
+                .await
+                .value
+            {
                 eprintln!("confirmed : {signature}");
             } else {
                 eprintln!("confirming {}", signature);
