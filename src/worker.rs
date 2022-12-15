@@ -1,19 +1,16 @@
-use std::collections::HashSet;
-
 use std::sync::Mutex;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc};
 
 use log::{info, warn};
 
-use solana_client::{nonblocking::tpu_client::TpuClient, rpc_response};
+use solana_client::nonblocking::tpu_client::TpuClient;
 
 use solana_sdk::signature::Signature;
-use solana_sdk::transaction;
-use solana_transaction_status::TransactionConfirmationStatus;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
+use crate::block_listenser::BlockListener;
 use crate::WireTransaction;
 
 const RETRY_BATCH_SIZE: usize = 10;
@@ -23,23 +20,29 @@ const RETRY_BATCH_SIZE: usize = 10;
 pub struct LightWorker {
     /// Transactions queue for retrying
     enqueued_txs: Arc<RwLock<HashMap<Signature, (WireTransaction, u16)>>>,
-    /// Transactions confirmed
-    confirmed_txs: Arc<RwLock<HashSet<Signature>>>,
+    /// block_listner
+    block_listner: BlockListener,
     /// TpuClient to call the tpu port
     tpu_client: Arc<TpuClient>,
 }
 
 impl LightWorker {
-    pub fn new(tpu_client: Arc<TpuClient>) -> Self {
+    pub fn new(tpu_client: Arc<TpuClient>, block_listner: BlockListener) -> Self {
         Self {
             enqueued_txs: Default::default(),
-            confirmed_txs: Default::default(),
+            block_listner,
             tpu_client,
         }
     }
     /// en-queue transaction if it doesn't already exist
     pub async fn enqnueue_tx(&self, sig: Signature, raw_tx: WireTransaction, max_retries: u16) {
-        if !self.confirmed_txs.read().await.contains(&sig) {
+        if !self
+            .block_listner
+            .confirmed_txs
+            .read()
+            .await
+            .contains(&sig.to_string())
+        {
             info!("en-queuing {sig} with max retries {max_retries}");
             self.enqueued_txs
                 .write()
@@ -47,32 +50,6 @@ impl LightWorker {
                 .insert(sig, (raw_tx, max_retries));
 
             println!("{:?}", self.enqueued_txs.read().await.len());
-        }
-    }
-
-    /// check if tx is in the confirmed cache
-    ///
-    /// ## Return
-    ///
-    /// None if transaction is un-confirmed
-    /// Some(Err) in case of transaction failure
-    /// Some(Ok(())) if tx is confirmed without failure
-    pub async fn confirm_tx(&self, sig: Signature) -> Option<transaction::Result<()>> {
-        if self.confirmed_txs.read().await.contains(&sig) {
-            info!("Confirmed {sig} from cache");
-            Some(Ok(()))
-        } else {
-            let res = self
-                .tpu_client
-                .rpc_client()
-                .get_signature_status(&sig)
-                .await
-                .unwrap();
-            if res.is_some() {
-                self.enqueued_txs.write().await.remove(&sig);
-                self.confirmed_txs.write().await.insert(sig);
-            }
-            res
         }
     }
 
@@ -125,47 +102,6 @@ impl LightWorker {
         }
     }
 
-    /// confirm enqued_tx(s)
-    pub async fn confirm_txs(&self) {
-        if self.has_no_work().await {
-            return;
-        }
-
-        info!("confirming tx(s)");
-
-        let mut enqued_txs = self.enqueued_txs.write().await;
-        let mut confirmed_txs = self.confirmed_txs.write().await;
-
-        let signatures: Vec<Signature> = enqued_txs.keys().cloned().collect();
-
-        let Ok(rpc_response::Response { context: _, value }) = self
-            .tpu_client
-            .rpc_client()
-            .get_signature_statuses(&signatures)
-            .await else {
-                return;
-        };
-
-        let mut signatures = signatures.iter();
-
-        for tx_status in value {
-            let signature = *signatures.next().unwrap();
-            let Some(tx_status) = tx_status else {
-//                enqued_txs.remove(&signature);
-                continue;
-            };
-
-            match tx_status.confirmation_status() {
-                TransactionConfirmationStatus::Processed => (),
-                _status => {
-                    info!("confirmed {signature}");
-                    enqued_txs.remove(&signature);
-                    confirmed_txs.insert(signature);
-                }
-            };
-        }
-    }
-
     /// check if any transaction is pending, still enqueued
     pub async fn has_no_work(&self) -> bool {
         self.enqueued_txs.read().await.is_empty()
@@ -193,8 +129,6 @@ impl LightWorker {
                     break;
                 }
                 info!("{} tx(s) en-queued", self.enqueued_txs.read().await.len());
-                info!("{} tx(s) confirmed", self.confirmed_txs.read().await.len());
-                self.confirm_txs().await;
                 interval.tick().await;
                 self.retry_txs().await;
             }

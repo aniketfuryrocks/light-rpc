@@ -1,4 +1,5 @@
 use crate::{
+    block_listenser::BlockListener,
     configs::SendTransactionConfig,
     encoding::BinaryEncoding,
     rpc::{
@@ -15,8 +16,7 @@ use reqwest::Url;
 
 use solana_client::{
     nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
-    rpc_response::RpcVersionInfo,
-    tpu_client::TpuSenderError,
+    rpc_response::{Response as RpcResponse, RpcVersionInfo},
 };
 use solana_sdk::{signature::Signature, transaction::VersionedTransaction};
 
@@ -25,17 +25,21 @@ pub struct LightBridge {
     pub tpu_client: Arc<TpuClient>,
     pub rpc_url: Url,
     pub worker: LightWorker,
+    pub block_listner: BlockListener,
 }
 
 impl LightBridge {
-    pub async fn new(rpc_url: reqwest::Url, ws_addr: &str) -> Result<Self, TpuSenderError> {
+    pub async fn new(rpc_url: reqwest::Url, ws_addr: &str) -> anyhow::Result<Self> {
         let rpc_client = Arc::new(RpcClient::new(rpc_url.to_string()));
 
         let tpu_client =
             Arc::new(TpuClient::new(rpc_client.clone(), ws_addr, Default::default()).await?);
 
+        let block_listner = BlockListener::new(rpc_client.clone(), ws_addr).await?;
+
         Ok(Self {
-            worker: LightWorker::new(tpu_client.clone()),
+            worker: LightWorker::new(tpu_client.clone(), block_listner.clone()),
+            block_listner,
             rpc_url,
             tpu_client,
         })
@@ -73,7 +77,7 @@ impl LightBridge {
     ) -> Result<bool, JsonRpcError> {
         let sig = Signature::from_str(&sig)?;
 
-        Ok(self.worker.confirm_tx(sig).await.is_some())
+        Ok(self.block_listner.confirm_tx(sig).await.is_some())
     }
 
     pub fn get_version(&self) -> RpcVersionInfo {
@@ -107,6 +111,7 @@ impl LightBridge {
     pub async fn start_server(self, addr: impl ToSocketAddrs) -> anyhow::Result<()> {
         let this = Arc::new(self);
         let worker = this.worker.clone().execute();
+        let block_listenser = this.block_listner.clone().listen();
 
         let json_cfg = web::JsonConfig::default().error_handler(|err, req| {
             let err = JsonRpcRes::Err(serde_json::Value::String(format!("{err}")))
@@ -124,9 +129,10 @@ impl LightBridge {
         .bind(addr)?
         .run();
 
-        let (res1, res2) = tokio::join!(server, worker);
+        let (res1, res2, res3) = tokio::join!(server, worker, block_listenser);
         res1?;
         res2?;
+        res3??;
         Ok(())
     }
 
