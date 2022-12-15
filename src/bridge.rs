@@ -1,12 +1,12 @@
 use crate::{
-    block_listenser::BlockListener,
     configs::SendTransactionConfig,
     encoding::BinaryEncoding,
     rpc::{
         ConfirmTransactionParams, JsonRpcError, JsonRpcReq, JsonRpcRes, RpcMethod,
         SendTransactionParams,
     },
-    worker::LightWorker,
+    workers::{BlockListener, TxSender},
+    DEFAULT_TX_MAX_RETRIES,
 };
 
 use std::{net::ToSocketAddrs, str::FromStr, sync::Arc};
@@ -25,7 +25,7 @@ use tokio::task::JoinHandle;
 pub struct LightBridge {
     pub tpu_client: Arc<TpuClient>,
     pub rpc_url: Url,
-    pub worker: LightWorker,
+    pub tx_sender: TxSender,
     pub block_listner: BlockListener,
 }
 
@@ -39,7 +39,7 @@ impl LightBridge {
         let block_listner = BlockListener::new(rpc_client.clone(), ws_addr).await?;
 
         Ok(Self {
-            worker: LightWorker::new(tpu_client.clone(), block_listner.clone()),
+            tx_sender: TxSender::new(tpu_client.clone(), block_listner.clone()),
             block_listner,
             rpc_url,
             tpu_client,
@@ -65,8 +65,8 @@ impl LightBridge {
 
         self.tpu_client.send_wire_transaction(raw_tx.clone()).await;
 
-        self.worker
-            .enqnueue_tx(sig, raw_tx, max_retries.unwrap_or(1))
+        self.tx_sender
+            .enqnueue_tx(sig, raw_tx, max_retries.unwrap_or(DEFAULT_TX_MAX_RETRIES))
             .await;
 
         Ok(BinaryEncoding::Base58.encode(sig))
@@ -114,7 +114,7 @@ impl LightBridge {
         addr: impl ToSocketAddrs + Send + 'static,
     ) -> Vec<JoinHandle<anyhow::Result<()>>> {
         let this = Arc::new(self);
-        let worker = this.worker.clone().execute();
+        let tx_sender = this.tx_sender.clone().execute();
         let block_listenser = this.block_listner.clone().listen();
 
         let json_cfg = web::JsonConfig::default().error_handler(|err, req| {
@@ -139,7 +139,7 @@ impl LightBridge {
             Ok(())
         });
 
-        vec![worker, block_listenser, server]
+        vec![server, block_listenser, tx_sender]
     }
 
     async fn rpc_route(body: bytes::Bytes, state: web::Data<Arc<LightBridge>>) -> JsonRpcRes {

@@ -9,14 +9,13 @@ use solana_sdk::signature::Signature;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
-use crate::block_listenser::BlockListener;
-use crate::WireTransaction;
+use crate::{WireTransaction, DEFAULT_TX_RETRY_BATCH_SIZE};
 
-const RETRY_BATCH_SIZE: usize = 10;
+use super::block_listenser::BlockListener;
 
 /// Retry transactions to a maximum of `u16` times, keep a track of confirmed transactions
 #[derive(Clone)]
-pub struct LightWorker {
+pub struct TxSender {
     /// Transactions queue for retrying
     enqueued_txs: Arc<RwLock<HashMap<Signature, (WireTransaction, u16)>>>,
     /// block_listner
@@ -25,7 +24,7 @@ pub struct LightWorker {
     tpu_client: Arc<TpuClient>,
 }
 
-impl LightWorker {
+impl TxSender {
     pub fn new(tpu_client: Arc<TpuClient>, block_listner: BlockListener) -> Self {
         Self {
             enqueued_txs: Default::default(),
@@ -62,14 +61,14 @@ impl LightWorker {
 
         let mut enqued_tx = self.enqueued_txs.write().await;
 
-        let mut tx_batch = Vec::with_capacity(enqued_tx.len() / RETRY_BATCH_SIZE);
+        let mut tx_batch = Vec::with_capacity(enqued_tx.len() / DEFAULT_TX_RETRY_BATCH_SIZE);
         let mut stale_txs = vec![];
 
         let mut batch_index = 0;
 
         for (index, (sig, (tx, retries))) in enqued_tx.iter_mut().enumerate() {
-            if index % RETRY_BATCH_SIZE == 0 {
-                tx_batch.push(Vec::with_capacity(RETRY_BATCH_SIZE));
+            if index % DEFAULT_TX_RETRY_BATCH_SIZE == 0 {
+                tx_batch.push(Vec::with_capacity(DEFAULT_TX_RETRY_BATCH_SIZE));
                 batch_index += 1;
             }
 
@@ -133,7 +132,7 @@ mod tests {
     use crate::test_utils::create_transaction;
     use solana_client::nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient};
 
-    use super::LightWorker;
+    use super::TxSender;
 
     const RPC_ADDR: &str = "http://127.0.0.1:8899";
     const WS_ADDR: &str = "ws://127.0.0.1:8900";
@@ -147,7 +146,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let worker = LightWorker::new(tpu_client);
+        let worker = TxSender::new(tpu_client);
         worker.clone().execute();
 
         let tx = create_transaction(&rpc_client).await;
