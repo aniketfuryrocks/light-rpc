@@ -103,7 +103,7 @@ impl LightBridge {
                 .await?
                 .into()),
             RpcMethod::GetVersion => Ok(serde_json::to_value(self.get_version()).unwrap()),
-            RpcMethod::Other => unreachable!(),
+            RpcMethod::Other => unreachable!("Other Rpc Methods should be handled externally"),
         }
     }
 
