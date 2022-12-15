@@ -16,7 +16,7 @@ use reqwest::Url;
 
 use solana_client::{
     nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient},
-    rpc_response::{Response as RpcResponse, RpcVersionInfo},
+    rpc_response::RpcVersionInfo,
 };
 use solana_sdk::{signature::Signature, transaction::VersionedTransaction};
 
