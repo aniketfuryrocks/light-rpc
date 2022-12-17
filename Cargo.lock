@@ -2075,7 +2075,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "light-rpc"
+name = "link-cplusplus"
+version = "1.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9272ab7b96c9046fbc5bc56c06c117cb639fe2d509df0c421cad82d2915cf369"
+dependencies = [
+ "cc",
+]
+
+[[package]]
+name = "linux-raw-sys"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f051f77a7c8e6957c0696eac88f26b0117e54f52d3fc682ab19397a8812846a4"
+
+[[package]]
+name = "lite-client"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "solana-client",
+]
+
+[[package]]
+name = "lite-rpc"
 version = "0.1.0"
 dependencies = [
  "actix-web",
@@ -2100,29 +2123,6 @@ dependencies = [
  "solana-version",
  "thiserror",
  "tokio",
-]
-
-[[package]]
-name = "link-cplusplus"
-version = "1.0.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9272ab7b96c9046fbc5bc56c06c117cb639fe2d509df0c421cad82d2915cf369"
-dependencies = [
- "cc",
-]
-
-[[package]]
-name = "linux-raw-sys"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f051f77a7c8e6957c0696eac88f26b0117e54f52d3fc682ab19397a8812846a4"
-
-[[package]]
-name = "lite-client"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "solana-client",
 ]
 
 [[package]]

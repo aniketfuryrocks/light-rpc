@@ -1,8 +1,8 @@
 use std::str::FromStr;
 
 use clap::Parser;
-use light_rpc::bridge::LightBridge;
-use light_rpc::cli::Args;
+use lite_rpc::bridge::LightBridge;
+use lite_rpc::cli::Args;
 use reqwest::Url;
 use simplelog::*;
 

@@ -3,11 +3,9 @@ use std::time::Duration;
 
 use bench_utils::helpers::{create_transaction, new_funded_payer};
 use futures::future::join;
-use light_rpc::encoding::BinaryEncoding;
-use light_rpc::{DEFAULT_RPC_ADDR, DEFAULT_WS_ADDR};
+use lite_rpc::{encoding::BinaryEncoding, DEFAULT_RPC_ADDR, DEFAULT_WS_ADDR, workers::{BlockListener, TxSender}};
 use solana_client::nonblocking::{rpc_client::RpcClient, tpu_client::TpuClient};
 
-use light_rpc::workers::{BlockListener, TxSender};
 use solana_sdk::native_token::LAMPORTS_PER_SOL;
 
 #[tokio::test]

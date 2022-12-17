@@ -8,7 +8,7 @@ use solana_sdk::{
     signer::Signer, system_instruction, transaction::Transaction,
 };
 
-use light_rpc::{bridge::LightBridge, encoding::BinaryEncoding, rpc::SendTransactionParams};
+use lite_rpc::{bridge::LightBridge, encoding::BinaryEncoding, rpc::SendTransactionParams};
 
 const RPC_ADDR: &str = "http://127.0.0.1:8899";
 const WS_ADDR: &str = "ws://127.0.0.1:8900";
